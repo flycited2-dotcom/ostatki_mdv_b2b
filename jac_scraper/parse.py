@@ -15,11 +15,13 @@ from bs4 import BeautifulSoup
 from .models import Product, normalize_number, parse_stock
 
 # Ключевые слова заголовков колонок -> логическое поле.
+# Важно: "номенклатур" только в name (иначе крадёт колонку наименования);
+# "руб" убран из price (это единица, а не название колонки — крал бы "Сумма руб.").
 _HEADER_KEYWORDS = {
-    "article": ["артикул", "код", "sku", "номенклатур", "кат. номер", "каталожн"],
-    "name": ["наименование", "название", "товар", "номенклатура", "описание", "модель"],
+    "article": ["артикул", "код", "sku", "кат. номер", "каталожн"],
+    "name": ["наименование", "название", "товар", "номенклатур", "описание", "модель"],
     "brand": ["бренд", "производитель", "марка", "brand"],
-    "price": ["цена", "стоимость", "прайс", "price", "руб"],
+    "price": ["цена", "стоимость", "прайс", "price"],
     "stock": ["остаток", "наличие", "склад", "кол-во", "количество", "доступно", "qty"],
     "unit": ["ед", "единица", "unit"],
 }
@@ -41,19 +43,45 @@ def _clean(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "")).strip()
 
 
+def _field_scores(header: str) -> Dict[str, int]:
+    """Для одного заголовка: поле -> длина самого специфичного совпавшего слова.
+
+    Совпадение требует границы слова СЛЕВА (?<![а-яёa-z0-9]), поэтому "код" не
+    ловит "штрихкод", а "ед" не ловит "передний". Длина слова = специфичность:
+    "наименование"(12) бьёт "товар"(5) при конфликте.
+    """
+    h = _clean(header).lower()
+    scores: Dict[str, int] = {}
+    for field, keywords in _HEADER_KEYWORDS.items():
+        best = 0
+        for kw in keywords:
+            if re.search(r"(?<![а-яёa-z0-9])" + re.escape(kw), h):
+                best = max(best, len(kw))
+        if best:
+            scores[field] = best
+    return scores
+
+
 def detect_column_map(header_cells: List[str]) -> Dict[str, int]:
-    """По текстам заголовков возвращает map поле->индекс колонки."""
-    mapping: Dict[str, int] = {}
+    """Сопоставляет поля колонкам по заголовкам.
+
+    Жадно по убыванию специфичности: каждое поле и каждая колонка
+    используются один раз. Это разруливает коллизии (напр. "Номенклатура"
+    уходит в name, а не в article).
+    """
+    candidates = []  # (score, col_idx, field)
     for idx, raw in enumerate(header_cells):
-        h = _clean(raw).lower()
-        if not h:
+        for field, score in _field_scores(raw).items():
+            candidates.append((score, idx, field))
+    candidates.sort(key=lambda c: (-c[0], c[1]))
+
+    mapping: Dict[str, int] = {}
+    used_cols: set[int] = set()
+    for _score, idx, field in candidates:
+        if field in mapping or idx in used_cols:
             continue
-        for field, keywords in _HEADER_KEYWORDS.items():
-            if field in mapping:
-                continue
-            if any(kw in h for kw in keywords):
-                mapping[field] = idx
-                break
+        mapping[field] = idx
+        used_cols.add(idx)
     return mapping
 
 
@@ -94,11 +122,12 @@ def _heuristic_row(cells: List[str]) -> Optional[Product]:
             price = normalize_number(c)
             price_idx = i
             break
-    # имя — самая длинная текстовая ячейка без явной цены
-    name_idx = max(
-        range(len(cells)),
-        key=lambda i: len(cells[i]) if i != price_idx and not _PRICE_RE.search(cells[i]) else -1,
-    )
+    # имя — самая длинная текстовая ячейка без явной цены (если такая есть)
+    def _name_score(i: int) -> int:
+        return len(cells[i]) if i != price_idx and not _PRICE_RE.search(cells[i]) else -1
+
+    best_idx = max(range(len(cells)), key=_name_score)
+    name_idx = best_idx if _name_score(best_idx) > 0 else None
     name = cells[name_idx] if name_idx is not None else ""
     if len(name) < 3 and price is None:
         return None
@@ -180,14 +209,21 @@ def parse_products(html: str) -> List[Product]:
         products.extend(parse_table(table))
     if not products:
         products.extend(parse_cards(soup))
-    return _dedupe(products)
+    return dedupe(products)
 
 
-def _dedupe(products: List[Product]) -> List[Product]:
+def dedupe(products: List[Product]) -> List[Product]:
+    """Убирает дубли. Когда артикул есть — ключ (артикул, имя). Когда артикула
+    нет — добавляем бренд и цену, чтобы не схлопнуть разные товары с одинаковым
+    именем (M4)."""
     seen = set()
     out = []
     for p in products:
-        key = (p.article.lower(), p.name.lower())
+        art = p.article.lower().strip()
+        if art:
+            key = (art, p.name.lower())
+        else:
+            key = ("", p.name.lower(), p.brand.lower(), p.price)
         if key in seen:
             continue
         seen.add(key)
