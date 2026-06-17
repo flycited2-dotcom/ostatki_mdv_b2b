@@ -17,7 +17,9 @@ def _sample():
 
 def test_export_csv_json_xlsx(tmp_path: Path):
     written = export_all(_sample(), tmp_path, ["csv", "json", "xlsx"])
-    assert len(written) == 3
+    # 3 запрошенных формата + стабильный jac_stock_latest.json для агрегатора
+    assert len(written) == 4
+    assert (tmp_path / "jac_stock_latest.json").exists()
     for p in written:
         assert p.exists() and p.stat().st_size > 0
 

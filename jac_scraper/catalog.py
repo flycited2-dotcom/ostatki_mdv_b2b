@@ -26,6 +26,53 @@ from .session import authenticate, looks_authenticated, AuthError
 
 _TOP_CAT_RE = re.compile(r"^/orders/blank_zakaza/(\d+)/$")
 _PAGEN_RE = re.compile(r"PAGEN_1=(\d+)")
+_CAT_PATH_RE = re.compile(r"^/orders/blank_zakaza/[\d/]+/$")
+
+# Известные бренды JAC (для распознавания бренд-сегмента в пути категории).
+_KNOWN_BRANDS = {"mdv": "MDV", "euroklimat": "EUROKLIMAT", "евроклимат": "EUROKLIMAT",
+                 "mitsubishi heavy": "Mitsubishi Heavy", "thaicon": "THAICON"}
+# Запасной маппинг по префиксу модели (если путь без бренд-сегмента).
+_BRAND_PREFIXES = (("SRK", "Mitsubishi Heavy"), ("SCM", "Mitsubishi Heavy"),
+                   ("MD", "MDV"), ("EK", "EUROKLIMAT"), ("TL", "THAICON"))
+
+
+def build_path_names(session: requests.Session, settings: Settings) -> dict:
+    """{путь_категории: название} из дерева бланка (для резолва бренда/серии)."""
+    resp = _get(session, f"{settings.base_url}/orders/blank_zakaza/", settings)
+    if resp is None:
+        return {}
+    soup = BeautifulSoup(resp.text, "lxml")
+    out = {}
+    for a in soup.find_all("a", href=True):
+        if _CAT_PATH_RE.match(a["href"]):
+            out[a["href"]] = " ".join(a.get_text(" ").split())
+    return out
+
+
+def _brand_by_prefix(model: str) -> str:
+    m = (model or "").upper().lstrip()
+    for pref, brand in _BRAND_PREFIXES:
+        if m.startswith(pref):
+            return brand
+    return ""
+
+
+def resolve_brand_series(path: str, model: str, path_names: dict) -> tuple[str, str]:
+    """Из data-href товара выводит (бренд, серия). Бренд — сегмент-имя из списка
+    известных брендов (запасной — префикс модели); серия — имя родительского
+    узла (последний сегмент пути — это модель)."""
+    ids = [x for x in (path or "").split("/") if x][2:]  # отрезаем orders/blank_zakaza
+    chain = []
+    for i in range(1, len(ids) + 1):
+        p = "/orders/blank_zakaza/" + "/".join(ids[:i]) + "/"
+        chain.append(path_names.get(p, ""))
+    brand = next((nm for nm in chain if nm.lower() in _KNOWN_BRANDS), "")
+    brand = _KNOWN_BRANDS.get(brand.lower(), brand) or _brand_by_prefix(model)
+    series = chain[-2] if len(chain) >= 2 else ""
+    # если серия совпала с брендом/категорией — считаем, что отдельной серии нет
+    if series.lower() in _KNOWN_BRANDS:
+        series = ""
+    return brand, series
 
 
 def _get(session: requests.Session, url: str, settings: Settings) -> Optional[requests.Response]:
@@ -138,5 +185,14 @@ def fetch_all(session: requests.Session, settings: Settings) -> List[Product]:
         all_products.extend(fetch_category(session, settings, path, name))
 
     result = dedupe(all_products)
+
+    # Бренд + серия из пути товара (одна загрузка дерева, без обхода карточек).
+    path_names = build_path_names(session, settings)
+    if path_names:
+        for p in result:
+            p.brand, p.series = resolve_brand_series(p.path, p.article, path_names)
+        tagged = sum(1 for p in result if p.brand)
+        print(f"Бренд проставлен: {tagged}/{len(result)}")
+
     print(f"Итого уникальных позиций: {len(result)} (до дедупа {len(all_products)})")
     return result

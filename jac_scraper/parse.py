@@ -224,7 +224,9 @@ def parse_blank_table(table, category: str = "") -> List[Product]:
         if not any(values) or _is_summary_row(r, values):
             continue
 
-        p = Product(category=category)
+        link = r.select_one("a.product__link[data-href], a[data-href]")
+        path = link.get("data-href", "") if link else ""
+        p = Product(category=category, path=path)
         price_set = False
         for i, val in enumerate(values):
             header = headers[i] if i < len(headers) else ""

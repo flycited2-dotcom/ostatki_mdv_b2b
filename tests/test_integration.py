@@ -132,7 +132,7 @@ def test_end_to_end_scrape(server, tmp_path):
     assert arts == ["JAC-1001", "JAC-1002", "JAC-2001", "JAC-2002"]
 
     written = export_all(products, tmp_path, settings.output_formats)
-    assert len(written) == 2
+    assert len(written) == 3   # csv, json + стабильный jac_stock_latest.json
     data = json.loads(next(tmp_path.glob("*.json")).read_text(encoding="utf-8"))
     by_art = {d["article"]: d for d in data}
     assert by_art["JAC-1001"]["price"] == 1250.5

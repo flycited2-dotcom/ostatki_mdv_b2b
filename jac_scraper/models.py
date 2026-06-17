@@ -77,14 +77,16 @@ def parse_stock(value: Optional[str]) -> tuple[Optional[float], str]:
 class Product:
     article: str = ""              # артикул / код / модель
     name: str = ""                 # наименование
-    brand: str = ""                # бренд / производитель (если есть)
+    brand: str = ""                # бренд (из пути категории: MDV/EUROKLIMAT/...)
+    series: str = ""               # серия/линейка (из пути: Alba/Bosco/INFINI...)
     stock_qty: Optional[float] = None   # числовой остаток (колонка "Наличие")
     stock_raw: str = ""            # исходный текст наличия ("0 шт", "69 шт", "много")
     price: Optional[float] = None  # ЦЕНА (на портале JAC — "Ваша цена", цена дилера)
     currency: str = "RUB"
     unit: str = ""                 # ед. изм. (шт, компл.)
     warehouse: str = ""            # склад (если есть единый)
-    category: str = ""             # категория/раздел бланка
+    category: str = ""             # категория/раздел бланка (верхний)
+    path: str = ""                 # полный путь категории товара (data-href)
     # доп. колонки как есть: РРЦ, Холод кВт, остатки по складам (Крым/Москва) и т.п.
     attributes: dict = field(default_factory=dict)
     source: str = "jac_b2b"
@@ -103,7 +105,7 @@ class Product:
 
 # Базовые колонки экспорта (доп. колонки из attributes добавляются динамически).
 EXPORT_COLUMNS = [
-    "article", "name", "brand", "category",
+    "article", "name", "brand", "series", "category",
     "stock_qty", "stock_raw",
     "price", "currency", "unit", "warehouse",
     "source", "scraped_at",
@@ -114,6 +116,7 @@ EXPORT_HEADERS_RU = {
     "article": "Артикул/Модель",
     "name": "Наименование",
     "brand": "Бренд",
+    "series": "Серия",
     "category": "Категория",
     "stock_qty": "Остаток (число)",
     "stock_raw": "Наличие (текст)",
