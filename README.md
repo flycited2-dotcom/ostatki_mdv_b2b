@@ -67,6 +67,58 @@ copy config\.env.example config\.env   # затем впиши JAC_LOGIN
 | `python -m jac_scraper discover` | сохраняет HTML в `dumps\` и печатает карту таблиц/колонок |
 | `python -m jac_scraper scrape` | собирает данные и пишет в `data\jac_stock_ГГГГММДД.{csv,json,xlsx}` + `jac_stock_latest.json` |
 | `python -m jac_scraper specs` | тянет характеристики (ТТХ) карточек → `data\jac_stock_latest`… `jac_specs_latest.json` (кэш; `--refresh` — заново) |
+| `python -m jac_scraper utp-collect` | обходит сайты вендоров, собирает УТП-кандидаты → `data\jac_utp_candidates.xlsx` + `.json` |
+| `python -m jac_scraper utp-build` | собирает финальный `data\jac_utp_latest.json` из отмеченного xlsx |
+
+> На Windows перед командами `utp-*` выставляй `$env:PYTHONUTF8=1` (или запускай
+> через `run_scrape.ps1`), чтобы русские символы в терминале не ломались.
+
+## УТП серий (конкурентные преимущества)
+
+Список УТП для каждой серии берётся с официальных сайтов вендоров. Процесс трёхшаговый:
+
+1. **Собрать кандидатов** — скрапер обходит страницы серий и вытаскивает текст
+   преимуществ в Excel:
+   ```powershell
+   $env:PYTHONUTF8=1; python -m jac_scraper utp-collect
+   # -> data\jac_utp_candidates.xlsx (212+ строк, все бренды кроме EUROKLIMAT)
+   ```
+
+2. **Вычитать вручную** — открыть `data\jac_utp_candidates.xlsx`, в колонке **«Брать»**
+   поставить `x` (или любой непустой символ) напротив строк, которые хочется взять.
+   Лишние или дублирующиеся фразы — оставить пустыми.
+
+3. **Собрать финальный JSON** — все отмеченные строки агрегируются в файл для бота:
+   ```powershell
+   $env:PYTHONUTF8=1; python -m jac_scraper utp-build
+   # -> data\jac_utp_latest.json
+   ```
+
+### Формат `data/jac_utp_latest.json`
+
+```json
+{
+  "MDV": {
+    "CLASSIC INVERTER": ["Функция Follow Me", "Фильтр тонкой очистки", ...],
+    "INTEGRA PRO":      ["3D Air Flow", "i-Feel", ...]
+  },
+  "THAICON": { ... },
+  "Mitsubishi Heavy": { ... }
+}
+```
+
+Ключи серий нормализованы в UPPER CASE без лишних пробелов
+(например `"CLASSIC INVERTER"`, `"SRK-ZSX DIAMOND"`).
+Бот обращается к файлу: `utp[brand][normalize_series(product.series)]`.
+
+### Охват автоматического сбора
+
+| Бренд | Каталог | Серий собрано | Примечание |
+|---|---|---|---|
+| MDV | `/catalog/bytovye-split-sistemy/invertornye-split-sistemy/` | ~9 | On/Off и вентиляционные серии на соседних страницах — добавить вручную при необходимости |
+| THAICON | `/catalog/thaicon-life/bytovye-split-sistemy/` | 6 бытовых + 2 полупром | Глобальная навигация тянет и полупром/VRF — лишнее видно в xlsx |
+| Mitsubishi Heavy | `/catalog/bytovye-split-sistemy/nastennye-split-sistemy/` | 5 настенных | Только настенные; кассетные/канальные — вручную |
+| EUROKLIMAT | — | 0 | На сайте нет УТП-блока; вписать вручную прямо в xlsx или в итоговый JSON |
 
 ## Интеграция с Telegram-ботом (SplitHub)
 
