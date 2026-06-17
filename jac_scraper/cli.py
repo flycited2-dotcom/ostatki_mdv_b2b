@@ -111,8 +111,11 @@ def cmd_utp_collect(settings) -> int:
     print(f"[utp-collect] ✓ кандидатов {len(cands)} → {xlsx_path}")
 
     stock_file = settings.output_dir / "jac_stock_latest.json"
-    if stock_file.exists():
+    try:
         products = json.loads(stock_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        products = None
+    if products:
         jac_series: dict = {}
         for p in products:
             jac_series.setdefault(p.get("brand", ""), [])

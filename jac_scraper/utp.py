@@ -67,6 +67,7 @@ def write_candidates(cands: List[UtpCandidate], xlsx_path: Path, json_path: Path
         ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = w
     wb.save(xlsx_path)
 
+    json_path.parent.mkdir(parents=True, exist_ok=True)
     json_path.write_text(
         json.dumps([c.__dict__ for c in cands], ensure_ascii=False, indent=2),
         encoding="utf-8",

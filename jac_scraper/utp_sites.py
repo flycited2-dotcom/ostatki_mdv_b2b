@@ -78,11 +78,19 @@ def parse_series_links(html: str, cfg: dict) -> dict:
 
 
 def collect_brand(session, settings, brand: str, cfg: dict):
-    """Обходит каталог бренда -> страницы серий -> УТП. Возвращает list[UtpCandidate]."""
+    """Обходит каталог бренда -> страницы серий -> УТП. Возвращает list[UtpCandidate].
+
+    except Exception намеренно широкий: одиночные сетевые сбои по серии/каталогу
+    не должны валить весь прогон — пропускаем и идём дальше.
+    """
     from .utp import UtpCandidate
 
-    catalog_url = urljoin(cfg["base_url"], cfg.get("catalog_path", "/catalog/"))
     cands = []
+    if not cfg.get("series_link_selector"):
+        print(f"  {brand}: пропуск (нет series_link_selector — УТП вводится вручную)")
+        return cands
+
+    catalog_url = urljoin(cfg["base_url"], cfg.get("catalog_path", "/catalog/"))
     try:
         cat_html = session.get(catalog_url, timeout=settings.timeout).text
     except Exception as e:

@@ -67,10 +67,9 @@ from jac_scraper.utp import coverage_gaps
 
 
 def test_coverage_gaps():
-    jac_series = {"MDV": ["INTEGRA", "Aurora", "Спл/Type test"]}
+    # INTEGRA покрыта кандидатом; AURORA — пробел; «Сплит-система ...» — тип, не серия
+    jac_series = {"MDV": ["INTEGRA", "Aurora", "Сплит-система настенного типа"]}
     candidates = [UtpCandidate("MDV", "Integra", "x")]
     type_words = ("сплит-система", "канальн", "кассетн", "мульти")
-    # подменяем третий элемент на реальный тип
-    jac_series = {"MDV": ["INTEGRA", "Aurora", "Сплит-система настенного типа"]}
     gaps = coverage_gaps(jac_series, candidates, type_words)
     assert gaps == {"MDV": ["AURORA"]}

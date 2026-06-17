@@ -38,13 +38,29 @@ def test_parse_series_links():
     }
 
 
+def test_parse_series_links_empty_selector_returns_empty():
+    # пустой series_link_selector -> ничего не обходим (так EUROKLIMAT не падает)
+    assert parse_series_links(CATALOG, {"base_url": "https://x", "series_link_selector": ""}) == {}
+
+
+# Ссылка-«Подробнее»: настоящее имя серии — в дочернем элементе, берём через name_selector
+CATALOG_NAMED = """<html><body>
+<a class="item" href="/catalog/diamond/">
+  <div class="title">SRK-ZSX DIAMOND</div><span>Подробнее</span>
+</a>
+</body></html>"""
+
+
+def test_parse_series_links_name_selector():
+    cfg = {"base_url": "https://mhi-aircond.ru",
+           "series_link_selector": "a.item", "name_selector": ".title"}
+    links = parse_series_links(CATALOG_NAMED, cfg)
+    assert links == {"SRK-ZSX DIAMOND": "https://mhi-aircond.ru/catalog/diamond/"}
+
+
 @pytest.mark.parametrize("brand,fixture,phrase", [
     ("THAICON", "utp_thaicon_series.html", "Full DC-Inverter"),
     ("Mitsubishi Heavy", "utp_mhi_series.html", "Очень тихие"),
-    pytest.param(
-        "EUROKLIMAT", "utp_euroklimat_series.html", "нет УТП",
-        marks=pytest.mark.skip(reason="нет УТП на сайте EUROKLIMAT, ручной ввод"),
-    ),
 ])
 def test_extract_utp_other_brands(brand, fixture, phrase):
     html = (FIX / fixture).read_text(encoding="utf-8")
