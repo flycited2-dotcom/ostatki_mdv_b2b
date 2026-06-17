@@ -71,3 +71,25 @@ def write_candidates(cands: List[UtpCandidate], xlsx_path: Path, json_path: Path
         json.dumps([c.__dict__ for c in cands], ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+
+def build_latest_from_xlsx(xlsx_path: Path, out_path: Path) -> dict:
+    """Читает отмеченный xlsx, берёт строки с непустой «Брать»,
+    группирует в {бренд: {СЕРИЯ_НОРМ: [тексты в порядке файла]}} и пишет json."""
+    from openpyxl import load_workbook
+
+    ws = load_workbook(xlsx_path, read_only=True).active
+    rows = ws.iter_rows(min_row=2, values_only=True)
+    out: dict = {}
+    for row in rows:
+        if not row or len(row) < 5:
+            continue
+        brand, series, _num, text, take = row[0], row[1], row[2], row[3], row[4]
+        if take is None or str(take).strip() == "" or not text:
+            continue
+        skey = normalize_series(str(series))
+        out.setdefault(str(brand), {}).setdefault(skey, []).append(str(text).strip())
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(json.dumps(out, ensure_ascii=False, indent=2), encoding="utf-8")
+    return out

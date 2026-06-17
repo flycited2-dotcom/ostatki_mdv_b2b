@@ -38,3 +38,26 @@ def test_write_candidates_xlsx_and_json(tmp_path: Path):
     assert header == ["Бренд", "Серия", "№", "Текст УТП", "Брать"]
     assert [ws.cell(row=2, column=i).value for i in range(1, 5)] == ["MDV", "INTEGRA", 1, "3D Air Flow"]
     assert ws.cell(row=2, column=5).value is None
+
+
+from jac_scraper.utp import build_latest_from_xlsx
+
+
+def test_build_latest_only_marked_rows(tmp_path: Path):
+    from openpyxl import Workbook
+    from jac_scraper.utp import CANDIDATES_HEADER
+    wb = Workbook(); ws = wb.active
+    ws.append(CANDIDATES_HEADER)
+    ws.append(["MDV", "Integra", 1, "3D Air Flow", "x"])
+    ws.append(["MDV", "Integra", 2, "Мусорный пункт", None])
+    ws.append(["MDV", "Aurora", 1, "Компактный корпус", "1"])
+    xlsx_path = tmp_path / "in.xlsx"; wb.save(xlsx_path)
+
+    out_path = tmp_path / "jac_utp_latest.json"
+    result = build_latest_from_xlsx(xlsx_path, out_path)
+
+    assert result == {
+        "MDV": {"INTEGRA": ["3D Air Flow"], "AURORA": ["Компактный корпус"]}
+    }
+    import json as _j
+    assert _j.loads(out_path.read_text(encoding="utf-8")) == result
