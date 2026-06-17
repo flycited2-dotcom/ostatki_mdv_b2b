@@ -1,7 +1,7 @@
 import pytest
 from pathlib import Path
 
-from jac_scraper.utp_sites import extract_utp, BRAND_CONFIGS
+from jac_scraper.utp_sites import extract_utp, BRAND_CONFIGS, parse_series_links
 
 FIX = Path(__file__).parent / "fixtures"
 
@@ -20,6 +20,22 @@ def test_extract_utp_mdv_fixture():
 def test_extract_utp_empty():
     assert extract_utp("", BRAND_CONFIGS["MDV"]) == []
     assert extract_utp("<html><body>нет блока</body></html>", BRAND_CONFIGS["MDV"]) == []
+
+
+CATALOG = """<html><body>
+<a class="series-card" href="/catalog/integra/">INTEGRA</a>
+<a class="series-card" href="/catalog/aurora/">AURORA</a>
+<a href="/about/">О нас</a>
+</body></html>"""
+
+
+def test_parse_series_links():
+    cfg = {"base_url": "https://mdv-aircond.ru", "series_link_selector": "a.series-card"}
+    links = parse_series_links(CATALOG, cfg)
+    assert links == {
+        "INTEGRA": "https://mdv-aircond.ru/catalog/integra/",
+        "AURORA": "https://mdv-aircond.ru/catalog/aurora/",
+    }
 
 
 @pytest.mark.parametrize("brand,fixture,phrase", [

@@ -5,7 +5,9 @@
 """
 from __future__ import annotations
 
+import time
 from typing import List
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup
 
@@ -44,6 +46,43 @@ def extract_utp(html: str, cfg: dict) -> List[str]:
     return out
 
 
+def parse_series_links(html: str, cfg: dict) -> dict:
+    """HTML каталога -> {имя_серии: абсолютный_url} по cfg["series_link_selector"]."""
+    soup = BeautifulSoup(html or "", "lxml")
+    out: dict = {}
+    for a in soup.select(cfg.get("series_link_selector", "")):
+        name = _clean(a.get_text(" "))
+        href = a.get("href", "")
+        if name and href:
+            out[name] = urljoin(cfg["base_url"], href)
+    return out
+
+
+def collect_brand(session, settings, brand: str, cfg: dict):
+    """Обходит каталог бренда -> страницы серий -> УТП. Возвращает list[UtpCandidate]."""
+    from .utp import UtpCandidate
+
+    catalog_url = urljoin(cfg["base_url"], cfg.get("catalog_path", "/catalog/"))
+    cands = []
+    try:
+        cat_html = session.get(catalog_url, timeout=settings.timeout).text
+    except Exception as e:
+        print(f"  ! {brand}: каталог недоступен ({e})")
+        return cands
+    series_links = parse_series_links(cat_html, cfg)
+    print(f"  {brand}: серий найдено {len(series_links)}")
+    for name, url in series_links.items():
+        try:
+            html = session.get(url, timeout=settings.timeout).text
+        except Exception as e:
+            print(f"  ! {brand}/{name}: {e}")
+            continue
+        for text in extract_utp(html, cfg):
+            cands.append(UtpCandidate(brand=brand, series=name, text=text))
+        time.sleep(0.35)
+    return cands
+
+
 BRAND_CONFIGS = {
     "MDV": {
         "base_url": "https://mdv-aircond.ru",
@@ -51,6 +90,10 @@ BRAND_CONFIGS = {
         # item_selector "h3" extracts the short title (УТП phrase) from each card.
         "selectors": ["#benefits .section-benefits__text-block"],
         "item_selector": "h3",
+        # Catalog path: residential split systems section (best-effort guess; verify live)
+        "catalog_path": "/catalog/bytovye-split-sistemy/",
+        # Series link selector: placeholder — needs live calibration
+        "series_link_selector": "",
     },
     "THAICON": {
         "base_url": "https://thaicon-climate.com",
@@ -58,6 +101,10 @@ BRAND_CONFIGS = {
         # No <li> inside — items are .detal-func__name divs (one per feature).
         "selectors": [".detal-func__items"],
         "item_selector": ".detal-func__name",
+        # Catalog path: placeholder — needs live calibration
+        "catalog_path": "/catalog/",
+        # Series link selector: placeholder — needs live calibration
+        "series_link_selector": "",
     },
     "Mitsubishi Heavy": {
         "base_url": "https://mhi-aircond.ru",
@@ -65,6 +112,10 @@ BRAND_CONFIGS = {
         # item_selector "h3" extracts the short title (УТП phrase) from each card.
         "selectors": ["#benefits .section-benefits__full-box"],
         "item_selector": "h3",
+        # Catalog path: placeholder — needs live calibration
+        "catalog_path": "/catalog/",
+        # Series link selector: placeholder — needs live calibration
+        "series_link_selector": "",
     },
     "EUROKLIMAT": {
         "base_url": "https://euroklimat.com.ru",
@@ -72,5 +123,9 @@ BRAND_CONFIGS = {
         # shop-level advantages (delivery/price/support). Selectors left empty.
         "selectors": [],
         "item_selector": "li",
+        # Catalog path: placeholder — needs live calibration
+        "catalog_path": "/catalog/",
+        # Series link selector: placeholder — needs live calibration
+        "series_link_selector": "",
     },
 }
