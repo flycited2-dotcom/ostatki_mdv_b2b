@@ -73,6 +73,28 @@ def write_candidates(cands: List[UtpCandidate], xlsx_path: Path, json_path: Path
     )
 
 
+def coverage_gaps(jac_series: dict, candidates: List["UtpCandidate"],
+                  type_words: tuple) -> dict:
+    """Возвращает {бренд: [СЕРИИ_НОРМ без УТП]}, исключая серии-типы.
+    jac_series: {бренд: [имена серий JAC]}; candidates: собранные УТП-кандидаты."""
+    have = {}
+    for c in candidates:
+        have.setdefault(c.brand, set()).add(normalize_series(c.series))
+    gaps: dict = {}
+    for brand, names in jac_series.items():
+        brand_have = have.get(brand, set())
+        missing = []
+        for raw in names:
+            norm = normalize_series(raw)
+            if not norm or any(w in raw.lower() for w in type_words):
+                continue
+            if norm not in brand_have and norm not in missing:
+                missing.append(norm)
+        if missing:
+            gaps[brand] = missing
+    return gaps
+
+
 def build_latest_from_xlsx(xlsx_path: Path, out_path: Path) -> dict:
     """Читает отмеченный xlsx, берёт строки с непустой «Брать»,
     группирует в {бренд: {СЕРИЯ_НОРМ: [тексты в порядке файла]}} и пишет json."""

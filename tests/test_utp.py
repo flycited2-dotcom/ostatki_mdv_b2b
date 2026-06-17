@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from jac_scraper.utp import normalize_series, match_series
+from jac_scraper.utp import normalize_series, match_series, UtpCandidate
 
 
 def test_normalize_series_uppercase_and_spaces():
@@ -61,3 +61,16 @@ def test_build_latest_only_marked_rows(tmp_path: Path):
     }
     import json as _j
     assert _j.loads(out_path.read_text(encoding="utf-8")) == result
+
+
+from jac_scraper.utp import coverage_gaps
+
+
+def test_coverage_gaps():
+    jac_series = {"MDV": ["INTEGRA", "Aurora", "Спл/Type test"]}
+    candidates = [UtpCandidate("MDV", "Integra", "x")]
+    type_words = ("сплит-система", "канальн", "кассетн", "мульти")
+    # подменяем третий элемент на реальный тип
+    jac_series = {"MDV": ["INTEGRA", "Aurora", "Сплит-система настенного типа"]}
+    gaps = coverage_gaps(jac_series, candidates, type_words)
+    assert gaps == {"MDV": ["AURORA"]}
