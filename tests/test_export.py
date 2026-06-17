@@ -27,7 +27,7 @@ def test_csv_content(tmp_path: Path):
     csv_file = next(tmp_path.glob("*.csv"))
     with csv_file.open(encoding="utf-8-sig") as f:
         rows = list(csv.reader(f, delimiter=";"))
-    assert rows[0][0] == "Артикул"
+    assert rows[0][0] == "Артикул/Модель"
     assert rows[1][0] == "JAC-1001"
     assert "1250.5" in rows[1]
 

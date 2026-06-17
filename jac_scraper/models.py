@@ -75,15 +75,18 @@ def parse_stock(value: Optional[str]) -> tuple[Optional[float], str]:
 
 @dataclass
 class Product:
-    article: str = ""              # артикул / код номенклатуры
+    article: str = ""              # артикул / код / модель
     name: str = ""                 # наименование
     brand: str = ""                # бренд / производитель (если есть)
-    stock_qty: Optional[float] = None   # числовой остаток
-    stock_raw: str = ""            # исходный текст наличия ("12", "много", "под заказ")
-    price: Optional[float] = None  # цена
+    stock_qty: Optional[float] = None   # числовой остаток (колонка "Наличие")
+    stock_raw: str = ""            # исходный текст наличия ("0 шт", "69 шт", "много")
+    price: Optional[float] = None  # ЦЕНА (на портале JAC — "Ваша цена", цена дилера)
     currency: str = "RUB"
     unit: str = ""                 # ед. изм. (шт, компл.)
-    warehouse: str = ""            # склад (если в данных есть)
+    warehouse: str = ""            # склад (если есть единый)
+    category: str = ""             # категория/раздел бланка
+    # доп. колонки как есть: РРЦ, Холод кВт, остатки по складам (Крым/Москва) и т.п.
+    attributes: dict = field(default_factory=dict)
     source: str = "jac_b2b"
     scraped_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
@@ -98,9 +101,9 @@ class Product:
         return asdict(self)
 
 
-# Колонки экспорта в человекочитаемом порядке.
+# Базовые колонки экспорта (доп. колонки из attributes добавляются динамически).
 EXPORT_COLUMNS = [
-    "article", "name", "brand",
+    "article", "name", "brand", "category",
     "stock_qty", "stock_raw",
     "price", "currency", "unit", "warehouse",
     "source", "scraped_at",
@@ -108,12 +111,13 @@ EXPORT_COLUMNS = [
 
 # Русские заголовки для CSV/XLSX.
 EXPORT_HEADERS_RU = {
-    "article": "Артикул",
+    "article": "Артикул/Модель",
     "name": "Наименование",
     "brand": "Бренд",
+    "category": "Категория",
     "stock_qty": "Остаток (число)",
     "stock_raw": "Наличие (текст)",
-    "price": "Цена",
+    "price": "Ваша цена",
     "currency": "Валюта",
     "unit": "Ед.",
     "warehouse": "Склад",

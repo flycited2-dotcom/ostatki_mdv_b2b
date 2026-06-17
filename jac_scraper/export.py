@@ -14,13 +14,26 @@ def _stamp() -> str:
     return datetime.now().strftime("%Y%m%d")
 
 
+def _attr_keys(products: List[Product]) -> List[str]:
+    """Объединение ключей attributes по всем товарам, в порядке первого появления."""
+    keys: List[str] = []
+    for p in products:
+        for k in p.attributes:
+            if k not in keys:
+                keys.append(k)
+    return keys
+
+
 def write_csv(products: List[Product], path: Path) -> Path:
+    attr_keys = _attr_keys(products)
     with path.open("w", newline="", encoding="utf-8-sig") as f:  # BOM -> Excel дружит
         writer = csv.writer(f, delimiter=";")
-        writer.writerow([EXPORT_HEADERS_RU[c] for c in EXPORT_COLUMNS])
+        writer.writerow([EXPORT_HEADERS_RU[c] for c in EXPORT_COLUMNS] + attr_keys)
         for p in products:
             d = p.to_dict()
-            writer.writerow([_fmt(d[c]) for c in EXPORT_COLUMNS])
+            row = [_fmt(d[c]) for c in EXPORT_COLUMNS]
+            row += [_fmt(p.attributes.get(k, "")) for k in attr_keys]
+            writer.writerow(row)
     return path
 
 
@@ -33,17 +46,21 @@ def write_json(products: List[Product], path: Path) -> Path:
 def write_xlsx(products: List[Product], path: Path) -> Path:
     from openpyxl import Workbook
 
+    attr_keys = _attr_keys(products)
     wb = Workbook()
     ws = wb.active
     ws.title = "JAC остатки"
-    ws.append([EXPORT_HEADERS_RU[c] for c in EXPORT_COLUMNS])
+    header = [EXPORT_HEADERS_RU[c] for c in EXPORT_COLUMNS] + attr_keys
+    ws.append(header)
     for p in products:
         d = p.to_dict()
-        ws.append([d[c] for c in EXPORT_COLUMNS])
+        row = [d[c] for c in EXPORT_COLUMNS]
+        row += [p.attributes.get(k, "") for k in attr_keys]
+        ws.append(row)
     # автоширина (грубо)
-    for col_idx, col in enumerate(EXPORT_COLUMNS, start=1):
+    for col_idx, title in enumerate(header, start=1):
         ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = \
-            max(12, min(40, len(EXPORT_HEADERS_RU[col]) + 4))
+            max(12, min(45, len(str(title)) + 4))
     wb.save(path)
     return path
 

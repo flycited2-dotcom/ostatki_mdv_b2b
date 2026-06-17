@@ -180,6 +180,71 @@ def parse_table(table) -> List[Product]:
     return products
 
 
+# --- Специализированный парсер бланка заказа b2b-jac.com (классы product__property--*) ---
+
+# Классы ячеек, которые НЕ являются данными колонок таблицы:
+#   --image        — превью товара (под colspan=2 заголовка "Наименование")
+#   --price-mobile — дубль цены только для мобильной верстки
+#   --quantity     — поле ввода количества (последняя колонка "Количество")
+_SKIP_CELL_CLASSES = ("--image", "--price-mobile", "--quantity")
+
+
+def _has_blank_markup(table) -> bool:
+    return table.select_one("td.product__property, td[class*=product__property]") is not None
+
+
+def _cell_classes(cell) -> str:
+    return " ".join(cell.get("class", []))
+
+
+def parse_blank_table(table, category: str = "") -> List[Product]:
+    """Парсит таблицу бланка заказа JAC по семантическим классам.
+
+    Колонки выравниваются по заголовку (без служебных ячеек image/mobile/quantity).
+    "Наличие" -> остаток, "Ваша цена" -> цена, прочее (РРЦ, Холод кВт, склады
+    Крым/Москва) -> attributes.
+    """
+    rows = table.find_all("tr")
+    if not rows:
+        return []
+
+    # Заголовки без колонки "Количество" (это поле ввода, а не данные).
+    raw_headers = [_clean(c.get_text(" ")) for c in rows[0].find_all(["th", "td"])]
+    headers = [h for h in raw_headers if "количеств" not in h.lower()]
+
+    products: List[Product] = []
+    for r in rows[1:]:
+        data_cells = [
+            td for td in r.find_all("td")
+            if not any(sk in _cell_classes(td) for sk in _SKIP_CELL_CLASSES)
+        ]
+        if not data_cells:
+            continue
+        values = [_clean(td.get_text(" ")) for td in data_cells]
+        if not any(values) or _is_summary_row(r, values):
+            continue
+
+        p = Product(category=category)
+        price_set = False
+        for i, val in enumerate(values):
+            header = headers[i] if i < len(headers) else ""
+            hl = header.lower()
+            if not p.name and ("наимен" in hl or "номенклатур" in hl or "модель" in hl):
+                p.name = val
+                p.article = val            # на этой витрине модель = идентификатор
+            elif "наличие" in hl:
+                p.stock_qty, p.stock_raw = parse_stock(val)
+            elif not price_set and "цена" in hl:   # "Ваша цена"
+                p.price = normalize_number(val)
+                price_set = True
+            elif header:
+                if val:
+                    p.attributes[header] = val
+        if p.is_valid():
+            products.append(p)
+    return products
+
+
 def parse_cards(soup: BeautifulSoup) -> List[Product]:
     """Резерв для div-карточек каталога (не табличная верстка)."""
     products: List[Product] = []
@@ -201,12 +266,19 @@ def parse_cards(soup: BeautifulSoup) -> List[Product]:
     return products
 
 
-def parse_products(html: str) -> List[Product]:
-    """Главная точка входа: HTML страницы -> список Product (с дедупликацией)."""
+def parse_products(html: str, category: str = "") -> List[Product]:
+    """Главная точка входа: HTML страницы -> список Product (с дедупликацией).
+
+    Если таблица — бланк заказа JAC (классы product__property--*), используется
+    специализированный парсер; иначе общий табличный/карточный.
+    """
     soup = BeautifulSoup(html or "", "lxml")
     products: List[Product] = []
     for table in soup.find_all("table"):
-        products.extend(parse_table(table))
+        if _has_blank_markup(table):
+            products.extend(parse_blank_table(table, category=category))
+        else:
+            products.extend(parse_table(table))
     if not products:
         products.extend(parse_cards(soup))
     return dedupe(products)
