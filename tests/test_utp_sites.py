@@ -1,3 +1,4 @@
+import pytest
 from pathlib import Path
 
 from jac_scraper.utp_sites import extract_utp, BRAND_CONFIGS
@@ -19,3 +20,17 @@ def test_extract_utp_mdv_fixture():
 def test_extract_utp_empty():
     assert extract_utp("", BRAND_CONFIGS["MDV"]) == []
     assert extract_utp("<html><body>нет блока</body></html>", BRAND_CONFIGS["MDV"]) == []
+
+
+@pytest.mark.parametrize("brand,fixture,phrase", [
+    ("THAICON", "utp_thaicon_series.html", "Full DC-Inverter"),
+    ("Mitsubishi Heavy", "utp_mhi_series.html", "Очень тихие"),
+    pytest.param(
+        "EUROKLIMAT", "utp_euroklimat_series.html", "нет УТП",
+        marks=pytest.mark.skip(reason="нет УТП на сайте EUROKLIMAT, ручной ввод"),
+    ),
+])
+def test_extract_utp_other_brands(brand, fixture, phrase):
+    html = (FIX / fixture).read_text(encoding="utf-8")
+    items = extract_utp(html, BRAND_CONFIGS[brand])
+    assert any(phrase.lower() in s.lower() for s in items)

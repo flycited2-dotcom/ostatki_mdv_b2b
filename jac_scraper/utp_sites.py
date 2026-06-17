@@ -54,16 +54,22 @@ BRAND_CONFIGS = {
     },
     "THAICON": {
         "base_url": "https://thaicon-climate.com",
-        "selectors": [],
-        "item_selector": "li",
+        # Each .detal-func__items is one benefit tab (Надежность, Эффективность, etc.)
+        # No <li> inside — items are .detal-func__name divs (one per feature).
+        "selectors": [".detal-func__items"],
+        "item_selector": ".detal-func__name",
     },
     "Mitsubishi Heavy": {
         "base_url": "https://mhi-aircond.ru",
-        "selectors": [],
-        "item_selector": "li",
+        # Each .section-benefits__full-box is one benefit card in the #benefits section.
+        # item_selector "h3" extracts the short title (УТП phrase) from each card.
+        "selectors": ["#benefits .section-benefits__full-box"],
+        "item_selector": "h3",
     },
     "EUROKLIMAT": {
         "base_url": "https://euroklimat.com.ru",
+        # No per-series УТП block on site — only generic category SEO text and
+        # shop-level advantages (delivery/price/support). Selectors left empty.
         "selectors": [],
         "item_selector": "li",
     },
