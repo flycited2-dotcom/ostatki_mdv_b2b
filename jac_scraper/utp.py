@@ -7,7 +7,10 @@
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
+from pathlib import Path
+from typing import List
 
 
 def normalize_series(name: str) -> str:
@@ -25,3 +28,46 @@ def match_series(jac_series: str, candidate_index: dict, aliases: dict | None = 
     key = normalize_series(jac_series)
     key = aliases.get(key, key)
     return candidate_index.get(key)
+
+
+CANDIDATES_XLSX = "jac_utp_candidates.xlsx"
+CANDIDATES_JSON = "jac_utp_candidates.json"
+LATEST_JSON = "jac_utp_latest.json"
+
+CANDIDATES_HEADER = ["Бренд", "Серия", "№", "Текст УТП", "Брать"]
+
+
+@dataclass
+class UtpCandidate:
+    brand: str
+    series: str
+    text: str
+
+
+def write_candidates(cands: List[UtpCandidate], xlsx_path: Path, json_path: Path) -> None:
+    """Пишет кандидатов в xlsx (с пустой колонкой «Брать») и json-бэкап.
+    Строки отсортированы по бренду -> серии; нумерация № в пределах серии.
+    """
+    from openpyxl import Workbook
+
+    cands = sorted(cands, key=lambda c: (c.brand, c.series))
+    xlsx_path.parent.mkdir(parents=True, exist_ok=True)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "УТП кандидаты"
+    ws.append(CANDIDATES_HEADER)
+    n_by_series: dict = {}
+    for c in cands:
+        key = (c.brand, c.series)
+        n_by_series[key] = n_by_series.get(key, 0) + 1
+        ws.append([c.brand, c.series, n_by_series[key], c.text, None])
+    widths = [18, 28, 5, 70, 8]
+    for col_idx, w in enumerate(widths, start=1):
+        ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = w
+    wb.save(xlsx_path)
+
+    json_path.write_text(
+        json.dumps([c.__dict__ for c in cands], ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
