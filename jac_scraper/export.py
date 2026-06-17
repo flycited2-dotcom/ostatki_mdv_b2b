@@ -84,4 +84,10 @@ def export_all(products: List[Product], output_dir: Path, formats: List[str]) ->
         path = output_dir / f"jac_stock_{stamp}.{fmt}"
         writers[fmt](products, path)
         written.append(path)
+
+    # Стабильный файл для агрегатора (Telegram-бот SplitHome читает его как 4-го
+    # поставщика). Всегда перезаписываем последним прогоном.
+    latest = output_dir / "jac_stock_latest.json"
+    write_json(products, latest)
+    written.append(latest)
     return written
