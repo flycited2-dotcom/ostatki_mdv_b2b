@@ -47,12 +47,31 @@ def extract_utp(html: str, cfg: dict) -> List[str]:
 
 
 def parse_series_links(html: str, cfg: dict) -> dict:
-    """HTML каталога -> {имя_серии: абсолютный_url} по cfg["series_link_selector"]."""
+    """HTML каталога -> {имя_серии: абсолютный_url} по cfg["series_link_selector"].
+
+    Опционально cfg["name_selector"] задаёт CSS-селектор для текста названия серии
+    внутри найденного <a> (или его ближайшего предка). Это нужно когда текст ссылки
+    — «Подробнее», а настоящее имя серии находится в соседнем/дочернем элементе.
+    """
+    if not cfg.get("series_link_selector"):
+        return {}
     soup = BeautifulSoup(html or "", "lxml")
     out: dict = {}
-    for a in soup.select(cfg.get("series_link_selector", "")):
-        name = _clean(a.get_text(" "))
+    name_sel = cfg.get("name_selector", "")
+    for a in soup.select(cfg["series_link_selector"]):
         href = a.get("href", "")
+        if not href:
+            continue
+        if name_sel:
+            # search in a itself, then parent, then grandparent
+            name_node = (
+                a.select_one(name_sel)
+                or (a.parent.select_one(name_sel) if a.parent else None)
+                or (a.parent.parent.select_one(name_sel) if a.parent and a.parent.parent else None)
+            )
+            name = _clean(name_node.get_text(" ") if name_node else a.get_text(" "))
+        else:
+            name = _clean(a.get_text(" "))
         if name and href:
             out[name] = urljoin(cfg["base_url"], href)
     return out
@@ -90,10 +109,13 @@ BRAND_CONFIGS = {
         # item_selector "h3" extracts the short title (УТП phrase) from each card.
         "selectors": ["#benefits .section-benefits__text-block"],
         "item_selector": "h3",
-        # Catalog path: residential split systems section (best-effort guess; verify live)
-        "catalog_path": "/catalog/bytovye-split-sistemy/",
-        # Series link selector: placeholder — needs live calibration
-        "series_link_selector": "",
+        # Inverter subcategory page — lists all inverter series (9 серий).
+        # ОГРАНИЧЕНИЕ: on/off и вентиляционные серии находятся на соседних страницах
+        # и в одном проходе не собираются (архитектура одноуровневого обхода).
+        # Охват: ~9 из ~20 серий бытового раздела.
+        "catalog_path": "/catalog/bytovye-split-sistemy/invertornye-split-sistemy/",
+        # .catalog-subsection-box — карточка подсекции; внутри один <a> со ссылкой и именем.
+        "series_link_selector": ".catalog-subsection-box a",
     },
     "THAICON": {
         "base_url": "https://thaicon-climate.com",
@@ -101,10 +123,16 @@ BRAND_CONFIGS = {
         # No <li> inside — items are .detal-func__name divs (one per feature).
         "selectors": [".detal-func__items"],
         "item_selector": ".detal-func__name",
-        # Catalog path: placeholder — needs live calibration
-        "catalog_path": "/catalog/",
-        # Series link selector: placeholder — needs live calibration
-        "series_link_selector": "",
+        # Страница бытовых сплит-систем — в header-навигации показаны все серии
+        # обоих подразделов (инверторные + on/off) с именами.
+        # Охват: все 6 бытовых серий THAICON LIFE.
+        "catalog_path": "/catalog/thaicon-life/bytovye-split-sistemy/",
+        # Header-навигация содержит список серий: li > a с именем и href.
+        # ОГРАНИЧЕНИЕ: глобальная навигация также включает полупром/VRF/multi — фильтрация
+        # происходит через urljoin (у посторонних серий другой base_url путь, они всё равно
+        # скачиваются — небольшой лишний трафик). При желании уточнить фильтр выше.
+        "series_link_selector": ".header-catalog__content .header-catalog__content__item li a",
+        # Series name is the text of the <a> itself (clean in this nav)
     },
     "Mitsubishi Heavy": {
         "base_url": "https://mhi-aircond.ru",
@@ -112,10 +140,13 @@ BRAND_CONFIGS = {
         # item_selector "h3" extracts the short title (УТП phrase) from each card.
         "selectors": ["#benefits .section-benefits__full-box"],
         "item_selector": "h3",
-        # Catalog path: placeholder — needs live calibration
-        "catalog_path": "/catalog/",
-        # Series link selector: placeholder — needs live calibration
-        "series_link_selector": "",
+        # Настенные сплит-системы — основной бытовой раздел (5 серий).
+        # Охват: все настенные серии MHI (5 из 5).
+        "catalog_path": "/catalog/bytovye-split-sistemy/nastennye-split-sistemy/",
+        # a.sectionlist__item — прямая ссылка на серию; текст содержит имя + «Подробнее».
+        # name_selector уточняет откуда брать чистое имя серии.
+        "series_link_selector": "a.sectionlist__item",
+        "name_selector": ".sectionlist__textbox-title",
     },
     "EUROKLIMAT": {
         "base_url": "https://euroklimat.com.ru",
@@ -123,9 +154,8 @@ BRAND_CONFIGS = {
         # shop-level advantages (delivery/price/support). Selectors left empty.
         "selectors": [],
         "item_selector": "li",
-        # Catalog path: placeholder — needs live calibration
+        # Нет обхода — parse_series_links вернёт {} при пустом series_link_selector.
         "catalog_path": "/catalog/",
-        # Series link selector: placeholder — needs live calibration
         "series_link_selector": "",
     },
 }
