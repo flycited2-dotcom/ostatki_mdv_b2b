@@ -65,7 +65,16 @@ copy config\.env.example config\.env   # затем впиши JAC_LOGIN
 |---|---|
 | `python -m jac_scraper check` | проверяет авторизацию и доступ к бланку |
 | `python -m jac_scraper discover` | сохраняет HTML в `dumps\` и печатает карту таблиц/колонок |
-| `python -m jac_scraper scrape` | собирает данные и пишет в `data\jac_stock_ГГГГММДД.{csv,json,xlsx}` |
+| `python -m jac_scraper scrape` | собирает данные и пишет в `data\jac_stock_ГГГГММДД.{csv,json,xlsx}` + `jac_stock_latest.json` |
+| `python -m jac_scraper specs` | тянет характеристики (ТТХ) карточек → `data\jac_stock_latest`… `jac_specs_latest.json` (кэш; `--refresh` — заново) |
+
+## Интеграция с Telegram-ботом (SplitHub)
+
+Бот `Site_ostatki_api_teleram` подключает JAC 4-м поставщиком, читая файлы скрапера:
+- `JAC_STOCK_JSON` → `jac_stock_latest.json` (остатки/цены/бренд/серия) — суточный отчёт + меню наценки;
+- `JAC_SPECS_JSON` → `jac_specs_latest.json` (ТТХ) — компактные характеристики под моделью в меню.
+
+Деплой (VPS, рядом с ботом): cron `scrape` затем `specs` до 09:00 МСК (`specs` кэш-ориентирован — после первого прогона дёшев), и прописать оба пути в `.env` бота. Бренд берётся из пути категории (MDV/EUROKLIMAT/THAICON/Mitsubishi Heavy), цена `price` = «Ваша цена» (опт), остаток для отчёта = склад **Крым**.
 
 Удобные обёртки: `run_scrape.ps1 [check|discover|scrape]` (UTF-8, логи в `logs\`).
 
