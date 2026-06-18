@@ -68,6 +68,7 @@ copy config\.env.example config\.env   # затем впиши JAC_LOGIN
 | `python -m jac_scraper scrape` | собирает данные и пишет в `data\jac_stock_ГГГГММДД.{csv,json,xlsx}` + `jac_stock_latest.json` |
 | `python -m jac_scraper specs` | тянет характеристики (ТТХ) карточек → `data\jac_stock_latest`… `jac_specs_latest.json` (кэш; `--refresh` — заново) |
 | `python -m jac_scraper utp-collect` | обходит сайты вендоров, собирает УТП-кандидаты → `data\jac_utp_candidates.xlsx` + `.json` |
+| `python -m jac_scraper utp-mdv <прайс.xlsx>` | берёт УТП MDV из официального прайс-листа и заменяет ими строки MDV в кандидатах (полнее сайта) |
 | `python -m jac_scraper utp-build` | собирает финальный `data\jac_utp_latest.json` из отмеченного xlsx |
 
 > На Windows перед командами `utp-*` выставляй `$env:PYTHONUTF8=1` (или запускай
@@ -83,6 +84,16 @@ copy config\.env.example config\.env   # затем впиши JAC_LOGIN
    $env:PYTHONUTF8=1; python -m jac_scraper utp-collect
    # -> data\jac_utp_candidates.xlsx (212+ строк, все бренды кроме EUROKLIMAT)
    ```
+
+   **MDV — из прайс-листа, а не с сайта.** Официальный прайс MDV (листы «RAC inverter»
+   и «RAC on-off») содержит выверенные УТП по ВСЕМ сериям, включая on/off, которых нет
+   на сайте. Замени MDV-строки данными прайса (THAICON/MHI и галочки по ним сохранятся):
+   ```powershell
+   $env:PYTHONUTF8=1; python -m jac_scraper utp-mdv "C:\путь\Прайс-лист MDV.xlsx"
+   ```
+   Серии прайса сопоставляются с сериями JAC по вхождению токенов (маркетинговый хвост
+   вроде «ERP Full DC INVERTER R32» отбрасывается); серии, которых нет в выгрузке JAC,
+   пропускаются.
 
 2. **Вычитать вручную** — открыть `data\jac_utp_candidates.xlsx`, в колонке **«Брать»**
    поставить `x` (или любой непустой символ) напротив строк, которые хочется взять.
@@ -115,7 +126,7 @@ copy config\.env.example config\.env   # затем впиши JAC_LOGIN
 
 | Бренд | Каталог | Серий собрано | Примечание |
 |---|---|---|---|
-| MDV | `/catalog/bytovye-split-sistemy/invertornye-split-sistemy/` | ~9 | On/Off и вентиляционные серии на соседних страницах — добавить вручную при необходимости |
+| MDV | **прайс-лист** (`utp-mdv`) | 18 (все, вкл. on/off) | Источник — официальный прайс, полнее сайта. Сайтовый обход для MDV не нужен |
 | THAICON | `/catalog/thaicon-life/bytovye-split-sistemy/` | 6 бытовых + 2 полупром | Глобальная навигация тянет и полупром/VRF — лишнее видно в xlsx |
 | Mitsubishi Heavy | `/catalog/bytovye-split-sistemy/nastennye-split-sistemy/` | 5 настенных | Только настенные; кассетные/канальные — вручную |
 | EUROKLIMAT | — | 0 | На сайте нет УТП-блока; вписать вручную прямо в xlsx или в итоговый JSON |

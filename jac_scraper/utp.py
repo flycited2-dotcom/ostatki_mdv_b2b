@@ -44,13 +44,13 @@ class UtpCandidate:
     text: str
 
 
-def write_candidates(cands: List[UtpCandidate], xlsx_path: Path, json_path: Path) -> None:
-    """Пишет кандидатов в xlsx (с пустой колонкой «Брать») и json-бэкап.
-    Строки отсортированы по бренду -> серии; нумерация № в пределах серии.
-    """
+def _write_candidate_rows(rows, xlsx_path: Path, json_path: Path) -> None:
+    """Пишет строки (brand, series, text, take) в xlsx + json-бэкап.
+    Сортировка по бренду->серии (стабильная — порядок УТП в серии сохраняется);
+    нумерация № в пределах серии."""
     from openpyxl import Workbook
 
-    cands = sorted(cands, key=lambda c: (c.brand, c.series))
+    rows = sorted(rows, key=lambda r: (r[0], r[1]))
     xlsx_path.parent.mkdir(parents=True, exist_ok=True)
 
     wb = Workbook()
@@ -58,10 +58,10 @@ def write_candidates(cands: List[UtpCandidate], xlsx_path: Path, json_path: Path
     ws.title = "УТП кандидаты"
     ws.append(CANDIDATES_HEADER)
     n_by_series: dict = {}
-    for c in cands:
-        key = (c.brand, c.series)
+    for brand, series, text, take in rows:
+        key = (brand, series)
         n_by_series[key] = n_by_series.get(key, 0) + 1
-        ws.append([c.brand, c.series, n_by_series[key], c.text, None])
+        ws.append([brand, series, n_by_series[key], text, take])
     widths = [18, 28, 5, 70, 8]
     for col_idx, w in enumerate(widths, start=1):
         ws.column_dimensions[ws.cell(row=1, column=col_idx).column_letter].width = w
@@ -69,9 +69,37 @@ def write_candidates(cands: List[UtpCandidate], xlsx_path: Path, json_path: Path
 
     json_path.parent.mkdir(parents=True, exist_ok=True)
     json_path.write_text(
-        json.dumps([c.__dict__ for c in cands], ensure_ascii=False, indent=2),
+        json.dumps([{"brand": b, "series": s, "text": t} for b, s, t, _ in rows],
+                   ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+
+
+def write_candidates(cands: List[UtpCandidate], xlsx_path: Path, json_path: Path) -> None:
+    """Пишет кандидатов в xlsx (с пустой колонкой «Брать») и json-бэкап."""
+    _write_candidate_rows([(c.brand, c.series, c.text, None) for c in cands],
+                          xlsx_path, json_path)
+
+
+def replace_brand_candidates(xlsx_path: Path, json_path: Path, brand: str,
+                             new_cands: List[UtpCandidate]) -> int:
+    """Заменяет строки одного бренда в файле кандидатов, СОХРАНЯЯ строки и галочки
+    остальных брендов. Новые строки бренда добавляются без отметки. Возвращает число
+    сохранённых чужих строк."""
+    from openpyxl import load_workbook
+
+    kept = []
+    if xlsx_path.exists():
+        ws = load_workbook(xlsx_path).active
+        for row in ws.iter_rows(min_row=2, values_only=True):
+            if not row or len(row) < 5 or row[0] is None:
+                continue
+            b, s, _num, text, take = row[0], row[1], row[2], row[3], row[4]
+            if str(b) != brand:
+                kept.append((str(b), str(s), str(text), take))
+    rows = kept + [(c.brand, c.series, c.text, None) for c in new_cands]
+    _write_candidate_rows(rows, xlsx_path, json_path)
+    return len(kept)
 
 
 def coverage_gaps(jac_series: dict, candidates: List["UtpCandidate"],

@@ -5,6 +5,7 @@
   discover    — сохранить реальный HTML и показать структуру (калибровка парсера)
   scrape      — собрать остатки+цены и выгрузить в data/ (csv/json/xlsx)
   utp-collect — обойти сайты вендоров, собрать УТП-кандидаты, записать xlsx для вычитки
+  utp-mdv     — взять УТП MDV из прайс-листа (xlsx) и заменить строки MDV в кандидатах
   utp-build   — собрать финальный jac_utp_latest.json из отмеченного xlsx
 """
 from __future__ import annotations
@@ -20,10 +21,11 @@ from .discover import run_discover
 from .export import export_all
 from .specs import fetch_specs, SPECS_FILE
 from .utp import (
-    write_candidates, build_latest_from_xlsx, coverage_gaps,
+    write_candidates, build_latest_from_xlsx, coverage_gaps, replace_brand_candidates,
     CANDIDATES_XLSX, CANDIDATES_JSON, LATEST_JSON,
 )
 from .utp_sites import BRAND_CONFIGS, collect_brand
+from .mdv_pricelist import parse_mdv_pricelist, build_jac_index
 
 
 def cmd_check(settings) -> int:
@@ -144,6 +146,39 @@ def cmd_utp_build(settings) -> int:
     return 0
 
 
+def cmd_utp_mdv(settings, pricelist: str) -> int:
+    """Берёт УТП MDV из официального прайс-листа (xlsx) и заменяет ими строки MDV
+    в файле кандидатов, сохраняя строки и галочки остальных брендов."""
+    from pathlib import Path
+    pl_path = Path(pricelist)
+    if not pl_path.exists():
+        print(f"[utp-mdv] ✗ нет файла прайса: {pl_path}")
+        return 3
+
+    stock_file = settings.output_dir / "jac_stock_latest.json"
+    try:
+        products = json.loads(stock_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        print(f"[utp-mdv] ✗ нет {stock_file}. Сначала запусти `scrape`.")
+        return 3
+
+    jac_index = build_jac_index(products, brand="MDV")
+    cands, unmapped = parse_mdv_pricelist(pl_path, jac_index)
+    if not cands:
+        print("[utp-mdv] ✗ не извлечено ни одного УТП — проверь структуру прайса.")
+        return 3
+
+    xlsx_path = settings.output_dir / CANDIDATES_XLSX
+    json_path = settings.output_dir / CANDIDATES_JSON
+    kept = replace_brand_candidates(xlsx_path, json_path, "MDV", cands)
+    series = sorted({c.series for c in cands})
+    print(f"[utp-mdv] ✓ MDV из прайса: {len(cands)} УТП по {len(series)} сериям; "
+          f"сохранено чужих строк: {kept} → {xlsx_path}")
+    if unmapped:
+        print(f"[utp-mdv] серии прайса без соответствия в JAC (пропущены): {', '.join(unmapped)}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="jac_scraper", description="Сбор остатков и цен с b2b-jac.com")
     sub = p.add_subparsers(dest="command", required=True)
@@ -154,6 +189,8 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--refresh", action="store_true", help="перетянуть все ТТХ заново (игнор кэша)")
     sub.add_parser("utp-collect", help="собрать УТП-кандидаты с сайтов вендоров в xlsx")
     sub.add_parser("utp-build", help="собрать финальный jac_utp_latest.json из отмеченного xlsx")
+    mp = sub.add_parser("utp-mdv", help="взять УТП MDV из прайс-листа (xlsx) и заменить строки MDV")
+    mp.add_argument("pricelist", help="путь к прайс-листу MDV (.xlsx)")
     return p
 
 
@@ -162,6 +199,8 @@ def main(argv=None) -> int:
     settings = load_settings()
     if args.command == "specs":
         return cmd_specs(settings, refresh=getattr(args, "refresh", False))
+    if args.command == "utp-mdv":
+        return cmd_utp_mdv(settings, args.pricelist)
     return {
         "check": cmd_check,
         "discover": cmd_discover,

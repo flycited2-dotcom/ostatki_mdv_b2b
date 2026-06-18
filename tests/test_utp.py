@@ -63,6 +63,37 @@ def test_build_latest_only_marked_rows(tmp_path: Path):
     assert _j.loads(out_path.read_text(encoding="utf-8")) == result
 
 
+from jac_scraper.utp import replace_brand_candidates, write_candidates
+
+
+def test_replace_brand_candidates_preserves_other_brand_ticks(tmp_path: Path):
+    from openpyxl import load_workbook
+    xlsx_path = tmp_path / "jac_utp_candidates.xlsx"
+    json_path = tmp_path / "jac_utp_candidates.json"
+    # исходный файл: MDV (старое) + THAICON с галочкой
+    write_candidates([
+        UtpCandidate("MDV", "OLD", "старое MDV"),
+        UtpCandidate("THAICON", "PHANTOM", "Тихий режим"),
+    ], xlsx_path, json_path)
+    ws = load_workbook(xlsx_path).active
+    for row in ws.iter_rows(min_row=2):
+        if row[0].value == "THAICON":
+            row[4].value = "x"            # пользователь отметил THAICON
+    ws.parent.save(xlsx_path)
+
+    # заменяем MDV новыми строками
+    kept = replace_brand_candidates(xlsx_path, json_path, "MDV",
+                                    [UtpCandidate("MDV", "INTEGRA", "новое MDV")])
+    assert kept == 1                       # одна чужая (THAICON) строка сохранена
+
+    ws = load_workbook(xlsx_path).active
+    rows = [(r[0], r[1], r[3], r[4]) for r in ws.iter_rows(min_row=2, values_only=True)]
+    # старое MDV исчезло, новое появилось, галочка THAICON на месте
+    assert ("MDV", "OLD", "старое MDV", None) not in rows
+    assert ("MDV", "INTEGRA", "новое MDV", None) in rows
+    assert ("THAICON", "PHANTOM", "Тихий режим", "x") in rows
+
+
 from jac_scraper.utp import coverage_gaps
 
 
