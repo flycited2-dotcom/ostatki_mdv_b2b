@@ -106,12 +106,13 @@ def _run(c, cmd, timeout=120):
     return rc, so.read().decode('utf-8', 'replace'), se.read().decode('utf-8', 'replace')
 
 
-def upload_atomic(c, local: Path, remote_name: str, retries=3):
-    """Заливает local → REMOTE_DIR/remote_name атомарно (через .tmp + mv). Сверяет размер."""
+def upload_atomic(c, local: Path, remote_name: str, retries=3, remote_dir=None):
+    """Заливает local → remote_dir/remote_name атомарно (через .tmp + mv). Сверяет размер."""
+    remote_dir = remote_dir or REMOTE_DIR
     data = local.read_bytes()
     b64 = base64.b64encode(data)
-    tmp = f'{REMOTE_DIR}/.{remote_name}.tmp'
-    final = f'{REMOTE_DIR}/{remote_name}'
+    tmp = f'{remote_dir}/.{remote_name}.tmp'
+    final = f'{remote_dir}/{remote_name}'
     for i in range(1, retries + 1):
         try:
             cmd = ("python3 -c \"import sys,base64,pathlib; p=pathlib.Path('%s'); "
@@ -194,9 +195,18 @@ def main():
         log('✗ не удалось подключиться к VPS: ' + str(e))
         alert('⚠️ JAC upload: нет связи с VPS: ' + str(e))
         return 4
+    photos_n = 0
     try:
         for name, p in ready:
             upload_atomic(c, p, name)
+        # локальные фото (THAICON) — каталог data/photos/ → REMOTE_DIR/photos/
+        photos_dir = DATA / 'photos'
+        if photos_dir.is_dir():
+            for f in sorted(photos_dir.glob('*')):
+                if f.is_file():
+                    upload_atomic(c, f, f.name, remote_dir=f'{REMOTE_DIR}/photos')
+                    photos_n += 1
+            log(f'  фото-файлов (THAICON) доставлено: {photos_n}')
     except Exception as e:                            # noqa: BLE001
         log('✗ сбой доставки: ' + str(e))
         alert('⚠️ JAC upload: сбой доставки на VPS: ' + str(e))
@@ -204,7 +214,7 @@ def main():
     finally:
         c.close()
 
-    log(f'=== upload_to_vps: успех, доставлено файлов: {len(ready)} ===')
+    log(f'=== upload_to_vps: успех, JSON {len(ready)} + фото {photos_n} ===')
     return 0
 
 
