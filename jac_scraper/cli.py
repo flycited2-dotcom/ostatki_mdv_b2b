@@ -26,6 +26,7 @@ from .utp import (
 )
 from .utp_sites import BRAND_CONFIGS, collect_brand
 from .mdv_pricelist import parse_mdv_pricelist, build_jac_index
+from .photos import cmd_photos
 
 
 def cmd_check(settings) -> int:
@@ -191,6 +192,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("utp-build", help="собрать финальный jac_utp_latest.json из отмеченного xlsx")
     mp = sub.add_parser("utp-mdv", help="взять УТП MDV из прайс-листа (xlsx) и заменить строки MDV")
     mp.add_argument("pricelist", help="путь к прайс-листу MDV (.xlsx)")
+    sub.add_parser("photos", help="карта фото серий (MDV/MHI из экспорта) -> jac_photos_latest.json")
     return p
 
 
@@ -207,6 +209,7 @@ def main(argv=None) -> int:
         "scrape": cmd_scrape,
         "utp-collect": cmd_utp_collect,
         "utp-build": cmd_utp_build,
+        "photos": cmd_photos,
     }[args.command](settings)
 
 
