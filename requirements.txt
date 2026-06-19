@@ -3,3 +3,4 @@ beautifulsoup4>=4.12
 lxml>=5.0
 openpyxl>=3.1
 python-dotenv>=1.0
+paramiko>=3.4    # авто-доставка файлов на прод-VPS (upload_to_vps.py)
