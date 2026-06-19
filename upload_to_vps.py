@@ -20,6 +20,7 @@ import base64
 import datetime as dt
 import json
 import os
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -106,40 +107,50 @@ def _run(c, cmd, timeout=120):
     return rc, so.read().decode('utf-8', 'replace'), se.read().decode('utf-8', 'replace')
 
 
-def upload_atomic(c, local: Path, remote_name: str, retries=3, remote_dir=None):
-    """Заливает local → remote_dir/remote_name атомарно (через .tmp + mv). Сверяет размер."""
+def upload_atomic(local: Path, remote_name: str, retries=3, remote_dir=None):
+    """Заливает local → remote_dir/remote_name на СВЕЖЕМ соединении, ОДНИМ ssh-каналом
+    (декод stdin → запись tmp → атомарный os.replace), сверяя размер. Свежий коннект на
+    каждый файл — обход sshd MaxSessions=10 (3 канала/файл рвали соединение на ~4-м файле)."""
     remote_dir = remote_dir or REMOTE_DIR
     data = local.read_bytes()
     b64 = base64.b64encode(data)
     tmp = f'{remote_dir}/.{remote_name}.tmp'
     final = f'{remote_dir}/{remote_name}'
+    py = ("import sys,base64,pathlib,os; "
+          "d=base64.b64decode(sys.stdin.buffer.read()); "
+          f"t=pathlib.Path({tmp!r}); f=pathlib.Path({final!r}); "
+          "t.parent.mkdir(parents=True,exist_ok=True); "
+          "t.write_bytes(d); os.replace(str(t),str(f)); print(len(d))")
+    cmd = 'python3 -c ' + shlex.quote(py)
+    last = None
     for i in range(1, retries + 1):
+        c = None
         try:
-            cmd = ("python3 -c \"import sys,base64,pathlib; p=pathlib.Path('%s'); "
-                   "p.parent.mkdir(parents=True, exist_ok=True); "
-                   "p.write_bytes(base64.b64decode(sys.stdin.buffer.read()))\"" % tmp)
+            c = connect(retries=2)
             si, so, se = c.exec_command(cmd, timeout=180)
             si.write(b64)
             si.flush()
             si.channel.shutdown_write()
-            if so.channel.recv_exit_status() != 0:
-                raise IOError('запись tmp не удалась: ' + se.read().decode('utf-8', 'replace'))
-            # сверить размер и атомарно переименовать
-            rc, out, err = _run(c, f'stat -c%s "{tmp}"')
-            remote_size = int(out.strip() or -1)
-            if remote_size != len(data):
-                raise IOError(f'размер не сошёлся: локально {len(data)}, на VPS {remote_size}')
-            rc, out, err = _run(c, f'mv -f "{tmp}" "{final}"')
+            rc = so.channel.recv_exit_status()
+            out = so.read().decode('utf-8', 'replace').strip()
+            err = se.read().decode('utf-8', 'replace')
             if rc != 0:
-                raise IOError('mv не удался: ' + err)
+                raise IOError('запись не удалась: ' + err)
+            if out != str(len(data)):
+                raise IOError(f'размер не сошёлся: локально {len(data)}, на VPS {out}')
             log(f'  ✓ {remote_name}: {len(data)} байт доставлено атомарно')
             return
         except Exception as e:                       # noqa: BLE001
+            last = e
             log(f'  {remote_name} попытка {i}/{retries}: {e}')
-            _run(c, f'rm -f "{tmp}"')                 # подчистить хвост
-            if i == retries:
-                raise
             time.sleep(3)
+        finally:
+            if c is not None:
+                try:
+                    c.close()
+                except Exception:
+                    pass
+    raise last
 
 
 def alert(text):
@@ -188,31 +199,23 @@ def main():
                 return 3
             log(f'  · {name}: невалиден, пропускаю ({e})')
 
-    # 2) доставить
-    try:
-        c = connect()
-    except Exception as e:                            # noqa: BLE001
-        log('✗ не удалось подключиться к VPS: ' + str(e))
-        alert('⚠️ JAC upload: нет связи с VPS: ' + str(e))
-        return 4
+    # 2) доставить (каждый файл — на свежем соединении, см. upload_atomic)
     photos_n = 0
     try:
         for name, p in ready:
-            upload_atomic(c, p, name)
+            upload_atomic(p, name)
         # локальные фото (THAICON) — каталог data/photos/ → REMOTE_DIR/photos/
         photos_dir = DATA / 'photos'
         if photos_dir.is_dir():
             for f in sorted(photos_dir.glob('*')):
                 if f.is_file():
-                    upload_atomic(c, f, f.name, remote_dir=f'{REMOTE_DIR}/photos')
+                    upload_atomic(f, f.name, remote_dir=f'{REMOTE_DIR}/photos')
                     photos_n += 1
             log(f'  фото-файлов (THAICON) доставлено: {photos_n}')
     except Exception as e:                            # noqa: BLE001
         log('✗ сбой доставки: ' + str(e))
         alert('⚠️ JAC upload: сбой доставки на VPS: ' + str(e))
         return 5
-    finally:
-        c.close()
 
     log(f'=== upload_to_vps: успех, JSON {len(ready)} + фото {photos_n} ===')
     return 0
