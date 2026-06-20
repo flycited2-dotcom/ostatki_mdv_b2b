@@ -43,7 +43,9 @@ EXPORT_URLS = {
 # (напр. MHI: в остатках «STANDARD», в экспорте «SRK-ZSP-W STANDARD»). Ключи/значения
 # сравниваются по normalize_series. Заполнять при необходимости.
 OVERRIDES: dict[str, dict[str, str]] = {
-    "Mitsubishi Heavy": {},
+    # MHI: в остатках серия обобщённая («STANDARD»), в экспорте — по линейкам (SRK-...).
+    # Сопоставляем по реальной модели в наличии (SRK25ZSP-W1 → линейка SRK-ZSP-W1).
+    "Mitsubishi Heavy": {"STANDARD": "SRK-ZSP-W1"},
 }
 
 MATCH_THRESHOLD = 0.6   # Жаккар по токенам; ниже — считаем матч ненадёжным
@@ -104,10 +106,11 @@ def build_brand_photos(stock_series_list, photo_map, overrides=None) -> dict:
     return out
 
 
-def thaicon_photos(src_dir, out_photos_dir) -> dict:
-    """Скан локальной папки THAICON (категория/серия/Внутренний блок/*.png).
-    Копирует представительное фото на серию в out_photos_dir, возвращает
-    {НОРМ_СЕРИЯ: имя_файла}. Папки нет → {}."""
+def local_series_photos(src_dir, out_photos_dir, prefix) -> dict:
+    """Скан локальной папки фото по сериям (структура: <категория>/<серия>/Внутренний
+    блок/*.png, либо <категория>/<серия>/любой png). Копирует самое лёгкое фото серии в
+    out_photos_dir, возвращает {НОРМ_СЕРИЯ: имя_файла}. Папки нет → {}.
+    prefix — бренд (THAICON/EUROKLIMAT) для имени файла."""
     src = Path(src_dir)
     if not src.is_dir():
         return {}
@@ -129,10 +132,10 @@ def thaicon_photos(src_dir, out_photos_dir) -> dict:
                 continue
             chosen = min(pics, key=lambda p: p.stat().st_size)   # самый лёгкий файл серии
             if chosen.stat().st_size > 20 * 1024 * 1024:         # >20 МБ — тяжело, пропускаем
-                logger.warning("THAICON %s: минимальное фото >20МБ — пропускаю", series_dir.name)
+                logger.warning("%s %s: минимальное фото >20МБ — пропускаю", prefix, series_dir.name)
                 continue
             key = normalize_series(series_dir.name)
-            base = "THAICON__" + re.sub(r"[^A-Z0-9]+", "_", key).strip("_") + ".png"
+            base = f"{prefix}__" + re.sub(r"[^A-Z0-9]+", "_", key).strip("_") + ".png"
             shutil.copyfile(chosen, out / base)
             res[key] = base
     return res
@@ -177,6 +180,7 @@ def cmd_photos(settings) -> int:
             prev = json.loads(out_path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             prev = {}
+    prev.pop("EUROKLIMAT", None)   # сброс старого ошибочного сайт-скрапа; EUROKLIMAT — только локальная папка
 
     result: dict[str, dict] = {}
     for brand, urls in EXPORT_URLS.items():
@@ -196,23 +200,26 @@ def cmd_photos(settings) -> int:
             result[brand] = prev[brand]
             print(f"[photos] {brand}: экспорт недоступен — сохранил прежние {len(prev[brand])} фото")
 
-    # THAICON — локальные файлы по сериям (если задан JAC_THAICON_DIR). Читаем в рантайме:
-    # .env подгружается в load_settings() уже ПОСЛЕ импорта модуля.
-    thaicon_dir = os.environ.get("JAC_THAICON_DIR", "") or THAICON_DIR
-    if thaicon_dir:
-        tmap = thaicon_photos(thaicon_dir, out_dir / "photos")
-        bp = build_brand_photos(by_brand.get("THAICON", set()), tmap, OVERRIDES.get("THAICON"))
-        have = len(by_brand.get("THAICON", set()))
-        print(f"[photos] THAICON: серий в наличии {have}, фото найдено {len(bp)} (локальные)")
-        if bp:
-            result["THAICON"] = bp
-        elif prev.get("THAICON"):
-            result["THAICON"] = prev["THAICON"]
-    elif prev.get("THAICON"):
-        result["THAICON"] = prev["THAICON"]
-        print("[photos] THAICON: JAC_THAICON_DIR не задан — сохранил прежние")
-    else:
-        print("[photos] THAICON: JAC_THAICON_DIR не задан — пропускаю")
+    # Локальные фото по сериям (THAICON, EUROKLIMAT): папка задаётся env JAC_<BRAND>_DIR
+    # (структура <категория>/<серия>/...). Читаем в рантайме — .env грузится в
+    # load_settings() уже ПОСЛЕ импорта модуля. Сайт EUROKLIMAT статически не скрапится
+    # (JS-каталог, og:image — глобальный дефолт), поэтому только локальная папка.
+    for brand, env in (("THAICON", "JAC_THAICON_DIR"), ("EUROKLIMAT", "JAC_EUROKLIMAT_DIR")):
+        src = os.environ.get(env, "") or (THAICON_DIR if env == "JAC_THAICON_DIR" else "")
+        have = len(by_brand.get(brand, set()))
+        if src:
+            m = local_series_photos(src, out_dir / "photos", brand)
+            bp = build_brand_photos(by_brand.get(brand, set()), m, OVERRIDES.get(brand))
+            print(f"[photos] {brand}: серий в наличии {have}, фото найдено {len(bp)} (локальные)")
+            if bp:
+                result[brand] = bp
+            elif prev.get(brand):
+                result[brand] = prev[brand]
+        elif prev.get(brand):
+            result[brand] = prev[brand]
+            print(f"[photos] {brand}: {env} не задан — сохранил прежние {len(prev[brand])}")
+        else:
+            print(f"[photos] {brand}: {env} не задан — пропускаю")
 
     out_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     total = sum(len(v) for v in result.values())
