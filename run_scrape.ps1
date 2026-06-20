@@ -31,9 +31,13 @@ Write-Output ("[{0}] jac_scraper {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 $code = $LASTEXITCODE
 Write-Output ("[exit $code]") | Tee-Object -FilePath $log -Append
 
-# После успешного scrape — доставить готовые файлы на прод-VPS (валидация+атомарно
-# внутри upload_to_vps.py). Сбой аплоада отражаем в коде выхода задачи.
+# После успешного scrape: обновить карту фото серий, затем доставить файлы на прод-VPS
+# (валидация+атомарно внутри upload_to_vps.py). Сбой аплоада отражаем в коде выхода задачи.
 if ($Command -eq "scrape" -and $code -eq 0) {
+    Write-Output ("[{0}] photos" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss")) | Tee-Object -FilePath $log -Append
+    & $py -m jac_scraper photos 2>&1 | Tee-Object -FilePath $log -Append   # фото MDV/MHI(URL)+THAICON/EUROKLIMAT(локально)
+    Write-Output ("[photos exit $LASTEXITCODE]") | Tee-Object -FilePath $log -Append
+
     Write-Output ("[{0}] upload_to_vps" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss")) | Tee-Object -FilePath $log -Append
     & $py (Join-Path $root "upload_to_vps.py") 2>&1 | Tee-Object -FilePath $log -Append
     $ucode = $LASTEXITCODE
